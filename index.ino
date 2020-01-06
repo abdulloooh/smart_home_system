@@ -9,25 +9,41 @@
 // Force EmonLib to use 10bit ADC resolution
 #define ADC_BITS    10
 //define cummulative energy and its time
-double timeCount = 0;
+unsigned long timeCount = 0;
 double cummulativeEnergy = 0;
+double sessionEnergy;
+double energyLeft;
+//double targetConsumption;
+//double UNITCOST = 25;
+double cummCost;
+double sessionCost;
+double percentUsage;
+//double target;
+double refEnergy = 0; //reference energy when target is set
 // Create instances
 EnergyMonitor emon1;
 //*******************************
 //MQTT
 #define TOKEN "BBFF-4OMP5F0TB4SvzDCDMgRQVrePZBy6gR" // Put your Ubidots' TOKEN
 #define MQTT_CLIENT_NAME "abdulloooh" // MQTT client Name, please enter your own 8-12 alphanumeric character ASCII string; 
-                                           //it should be a random and unique ascii string and different from all other devices
+//it should be a random and unique ascii string and different from all other devices
 /****************************************
- * Define Constants
+   Define Constants
  ****************************************/
 #define VARIABLE_LABEL_1 "power" // Assing the variable label
 #define VARIABLE_LABEL_2 "energy" // Assing the variable label
+#define VARIABLE_LABEL_3 "cummcost"
+#define VARIABLE_LABEL_4 "energyleft"
+#define VARIABLE_LABEL_5 "sessioncost"
+#define VARIABLE_LABEL_6 "percentusage"
+#define VARIABLE_LABEL_7 "sessionenergy"
 #define VARIABLE_LABEL_SUB_1 "relay1" // Assing the variable label to subscribe
 #define VARIABLE_LABEL_SUB_2 "relay2" // Assing the variable label to subscribe
 #define VARIABLE_LABEL_SUB_3 "relay3" // Assing the variable label to subscribe
 #define VARIABLE_LABEL_SUB_4 "relay4" // Assing the variable label to subscribe
 #define VARIABLE_LABEL_SUB_5 "target" // Assing the variable label to subscribe
+#define VARIABLE_LABEL_SUB_6 "unitcost" //total cost
+#define VARIABLE_LABEL_SUB_7 "reset"
 #define DEVICE_LABEL "esp32" // Assig the device label
 
 #define R1 26 // Set the GPIO26 as RELAY
@@ -42,18 +58,24 @@ char topic[1000];
 // Space to store values to send
 char str_power[10];
 char str_energy[10];
+char str_cummcost[10];
+char str_energyleft[10];
+char str_sessionenergy[10];
+char str_sessioncost[10];
+char str_percentusage[10];
 
 const int ERROR_VALUE = 65535;  // Set here an error value
 
-const uint8_t NUMBER_OF_VARIABLES = 5; // Number of variable to subscribe to
-char * variable_labels[NUMBER_OF_VARIABLES] = {"relay1", "relay2", "relay3", "relay4" , "target"}; // labels of the variable to subscribe to
+const uint8_t NUMBER_OF_VARIABLES = 7; // Number of variable to subscribe to
+char * variable_labels[NUMBER_OF_VARIABLES] = {"relay1", "relay2", "relay3", "relay4" , "target", "unitcost", "reset"}; // labels of the variable to subscribe to
 
 float CONTROL1; // Name of the variable to be used within the code.
 float CONTROL2; // Name of the variable to be used within the code.
 float CONTROL3; // Name of the variable to be used within the code.
 float CONTROL4; // Name of the variable to be used within the code.
-float CONTROL5; // Name of the variable to be used within the code.
-
+float TARGET; // Name of the variable to be used within the code.
+float UNITCOST = 25;
+float RESET;
 float value; // To store incoming value.
 uint8_t variable; // To keep track of the state machine and be able to use the switch case.
 
@@ -65,25 +87,26 @@ uint8_t variable; // To keep track of the state machine and be able to use the s
 WiFiClient ubidots;
 PubSubClient client(ubidots);
 /****************************************
- * Auxiliar Functions
+   Auxiliar Functions
  ****************************************/
 
 void reconnect() {
   // Loop until we're reconnected
   if (!client.connected()) {
     Serial.println("Attempting MQTT connection...");
-    
+
     // Attemp to connect
     if (client.connect(MQTT_CLIENT_NAME, TOKEN, "") ) {
       Serial.println("Connected");
-//      client.subscribe(topicSubscribe);
+      //      client.subscribe(topicSubscribe);
     }
     else {
       Serial.print("Failed, rc=");
       Serial.print(client.state());
-      Serial.println(" try again in 2 seconds");
+      //loop through the code and come back again;
+      //Serial.println(" try again in 2 seconds");
       // Wait 2 seconds before retrying
-      delay(2000);
+      //delay(2000);
     }
   }
 }
@@ -99,8 +122,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 // Parse topic to extract the variable label which changed value
 void get_variable_label_topic(char * topic, char * variable_label) {
-//  Serial.print("topic:");
-//  Serial.println(topic);
+  //  Serial.print("topic:");
+  //  Serial.println(topic);
   sprintf(variable_label, "");
   for (int i = 0; i < NUMBER_OF_VARIABLES; i++) {
     char * result_lv = strstr(topic, variable_labels[i]);
@@ -112,8 +135,8 @@ void get_variable_label_topic(char * topic, char * variable_label) {
         result[i] = result_lv[i];
       }
       result[i] = '\0';
-//      Serial.print("Label is: ");
-//      Serial.println(result);
+      //      Serial.print("Label is: ");
+      //      Serial.println(result);
       sprintf(variable_label, "%s", result);
       break;
     }
@@ -149,118 +172,121 @@ void execute_cases() {
   switch (variable) {
     case 0:
       CONTROL1 = value;
-      digitalWrite(R1,value);
+      digitalWrite(R1, value);
       Serial.print("CONTROL1: ");
       Serial.println(CONTROL1);
       Serial.println();
       break;
     case 1:
       CONTROL2 = value;
-        digitalWrite(R2,value);
+      digitalWrite(R2, value);
       Serial.print("CONTROL2: ");
       Serial.println(CONTROL2);
       Serial.println();
       break;
     case 2:
       CONTROL3 = value;
-        digitalWrite(R3,value);
+      digitalWrite(R3, value);
       Serial.print("CONTROL3: ");
       Serial.println(CONTROL3);
       Serial.println();
       break;
     case 3:
       CONTROL4 = value;
-        digitalWrite(R4,value);
+      digitalWrite(R4, value);
       Serial.print("CONTROL4: ");
       Serial.println(CONTROL4);
       Serial.println();
       break;
     case 4:
-      CONTROL5 = value;
-//        digitalWrite(R5,value);
-      Serial.print("CONTROL5: ");
-      Serial.println(CONTROL5);
+      TARGET = value; //set target consumption
+      refEnergy = cummulativeEnergy; // upfate reference energy
+      Serial.print("Reference energy set at: ");
+      Serial.println(cummulativeEnergy);
+      Serial.print("TARGET CONSUMPTION: ");
+      Serial.println(TARGET);
       Serial.println();
       break;
-//    case 5:
-//      CONTROL6 = value;
-//        digitalWrite(R6,value);
-//      Serial.print("CONTROL6: ");
-//      Serial.println(CONTROL6);
-//      Serial.println();
-//      break;
-//    case 6:
-//      CONTROL7 = value;
-//        digitalWrite(R7,value);
-//      Serial.print("CONTROL7: ");
-//      Serial.println(CONTROL7);
-//
-//      Serial.println();
-//      break;
-//    case 7:
-//      CONTROL8 = value;
-//        digitalWrite(R8,value);
-//      Serial.print("CONTROL8: ");
-//      Serial.println(CONTROL8);
-//      Serial.println();
-//      break;
-//    case 8:
-//      CONTROL9 = value;
-//        digitalWrite(R9,value);
-//      Serial.print("CONTROL9: ");
-//      Serial.println(CONTROL9);
-//      Serial.println();
-//      break;
-//    case 9:
-//      CONTROL10 = value;
-//        digitalWrite(R10,value);
-//      Serial.print("CONTROL10: ");
-//      Serial.println(CONTROL10);
-//
-//      Serial.println();
-//      break;
-//    case 10:
-//      CONTROL11 = value;
-//        digitalWrite(R11,value);
-//      Serial.print("CONTROL11: ");
-//      Serial.println(CONTROL11);
-//      Serial.println();
-//      break;
-//    case 11:
-//      CONTROL12 = value;
-//        digitalWrite(R12,value);
-//      Serial.print("CONTROL12: ");
-//      Serial.println(CONTROL12);
-//      Serial.println();
-//      break;
-//    case 12:
-//      CONTROL13 = value;
-//        digitalWrite(R13,value);
-//      Serial.print("CONTROL13: ");
-//      Serial.println(CONTROL13);
-//      Serial.println();
-//      break;
-//    case 13:
-//      CONTROL14 = value;
-//        digitalWrite(R14,value);
-//      Serial.print("CONTROL14: ");
-//      Serial.println(CONTROL14);
-//      Serial.println();
-//      break;
-//    case 14:
-//      CONTROL15 = value;
-//        digitalWrite(R15,value);
-//      Serial.print("CONTROL15: ");
-//      Serial.println(CONTROL15);
-//      Serial.println();
-//      break;
-//    case 15:
-//      CONTROL16 = value;
-//        digitalWrite(R16,value);
-//      Serial.print("CONTROL16: ");
-//      Serial.println(CONTROL16);
-//      Serial.println();
-//      break;
+    case 5:
+      UNITCOST = value; //Set global variable unti cost
+      Serial.print("UNIT COST: ");
+      Serial.println(UNITCOST);
+      Serial.println();
+      break;
+    case 6:
+      RESET = value;
+      Serial.print("RESET: ");
+      Serial.println(RESET);
+      if (RESET == 1) {
+        cummulativeEnergy = TARGET = refEnergy = sessionEnergy = cummCost = sessionCost = percentUsage = energyLeft = 0;
+        Serial.println("System reset");
+      }
+      Serial.println();
+      break;
+    //    case 7:
+    //      CONTROL8 = value;
+    //        digitalWrite(R8,value);
+    //      Serial.print("CONTROL8: ");
+    //      Serial.println(CONTROL8);
+    //      Serial.println();
+    //      break;
+    //    case 8:
+    //      CONTROL9 = value;
+    //        digitalWrite(R9,value);
+    //      Serial.print("CONTROL9: ");
+    //      Serial.println(CONTROL9);
+    //      Serial.println();
+    //      break;
+    //    case 9:
+    //      CONTROL10 = value;
+    //        digitalWrite(R10,value);
+    //      Serial.print("CONTROL10: ");
+    //      Serial.println(CONTROL10);
+    //
+    //      Serial.println();
+    //      break;
+    //    case 10:
+    //      CONTROL11 = value;
+    //        digitalWrite(R11,value);
+    //      Serial.print("CONTROL11: ");
+    //      Serial.println(CONTROL11);
+    //      Serial.println();
+    //      break;
+    //    case 11:
+    //      CONTROL12 = value;
+    //        digitalWrite(R12,value);
+    //      Serial.print("CONTROL12: ");
+    //      Serial.println(CONTROL12);
+    //      Serial.println();
+    //      break;
+    //    case 12:
+    //      CONTROL13 = value;
+    //        digitalWrite(R13,value);
+    //      Serial.print("CONTROL13: ");
+    //      Serial.println(CONTROL13);
+    //      Serial.println();
+    //      break;
+    //    case 13:
+    //      CONTROL14 = value;
+    //        digitalWrite(R14,value);
+    //      Serial.print("CONTROL14: ");
+    //      Serial.println(CONTROL14);
+    //      Serial.println();
+    //      break;
+    //    case 14:
+    //      CONTROL15 = value;
+    //        digitalWrite(R15,value);
+    //      Serial.print("CONTROL15: ");
+    //      Serial.println(CONTROL15);
+    //      Serial.println();
+    //      break;
+    //    case 15:
+    //      CONTROL16 = value;
+    //        digitalWrite(R16,value);
+    //      Serial.print("CONTROL16: ");
+    //      Serial.println(CONTROL16);
+    //      Serial.println();
+    //      break;
     case ERROR_VALUE:
       Serial.println("error");
       Serial.println();
@@ -278,34 +304,50 @@ const char *WIFI_SSID = "abdulloooh";
 const char *WIFI_PASSWORD = "abdurrahman";
 
 //Array to store 30 readings (and then transmit in one-go to AWS)
-short measurements[30];
-short measureIndex = 0;
+//short measurements[30];
+//short measureIndex = 0;
 unsigned long lastMeasurement = 0;
 unsigned long timeFinishedSetup = 0;
-int a;
+unsigned long a=0;
 
-void writeEnergyToDisplay(double watts, double amps, double energy){
-//  lcd.setCursor(3, 1); // Start from column 3, first two are broken :/
+void writeEnergyToDisplay(double watts, double amps, double energy) {
+  //  lcd.setCursor(3, 1); // Start from column 3, first two are broken :/
 
-  Serial.print(amps/60);
+  Serial.print(amps);
   Serial.println("A");
   Serial.print(watts);
   Serial.println("W");
-  cummulativeEnergy = cummulativeEnergy + energy; 
+  cummulativeEnergy = cummulativeEnergy + energy;
+  Serial.print("Cumulative Energy: ");
   Serial.print(cummulativeEnergy);
-  Serial.println(" kWh");
+  Serial.println(" Wh");
+  cummCost = cummulativeEnergy * UNITCOST;
+  Serial.print("Cummulative cost: ");
+  Serial.println(cummCost);
+  sessionEnergy = cummulativeEnergy - refEnergy;
+  Serial.print("Session Energy: ");
+  Serial.println(sessionEnergy);
+  sessionCost = sessionEnergy * UNITCOST;
+  Serial.print("session cost: ");
+  Serial.println(sessionCost);
+  energyLeft = TARGET - sessionEnergy;
+  Serial.print("Session Energy Left: ");
+  Serial.println(energyLeft);
+  percentUsage = (sessionEnergy * 100) / TARGET;
+  Serial.print("Percentage session usage(%): ");
+  Serial.println(percentUsage);
 }
 
-void printIPAddress(){
-//  lcd.setCursor(3,0);
-    Serial.println("connected");
-    Serial.println(WiFi.localIP());
+void printIPAddress() {
+  //  lcd.setCursor(3,0);
+  Serial.println("connected");
+  Serial.println(WiFi.localIP());
 }
 
 void connectToWiFi() {
-//    Serial.clear();
-//  lcd.setCursor(3, 0);
-    Serial.print("WiFi...      ");
+  //    Serial.clear();
+  //  lcd.setCursor(3, 0);
+  Serial.print("Connecting to WiFi...");
 
   WiFi.mode(WIFI_STA);
   WiFi.setHostname("esp32-energy-monitor");
@@ -313,162 +355,185 @@ void connectToWiFi() {
 
   // Only try 15 times to connect to the WiFi
   int retries = 0;
-  while (WiFi.status() != WL_CONNECTED && retries < 15){
+  while (WiFi.status() != WL_CONNECTED && retries < 10) {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print(".");
     delay(500);
     retries++;
   }
 
-    // If we still couldn't connect to the WiFi, go to deep sleep for a
+  // If we still couldn't connect to the WiFi, go to deep sleep for a
   // minute and try again.
-//    if(WiFi.status() != WL_CONNECTED){    Serial.print(".");
-//
-//        Serial.println("sleep mode");
-//        esp_sleep_enable_timer_wakeup(1 * 60L * 1000000L);
-//        esp_deep_sleep_start();
-//    }
+  //    if(WiFi.status() != WL_CONNECTED){    Serial.print(".");
+  //
+  //        Serial.println("sleep mode");
+  //        esp_sleep_enable_timer_wakeup(1 * 60L * 1000000L);
+  //        esp_deep_sleep_start();
+  //    }
 
   // If we get here, print the IP address on the LCD
   printIPAddress();
 }
 
-void setup() 
+void setup()
 {
   pinMode(R1, OUTPUT);
   pinMode(R2, OUTPUT);
   pinMode(R3, OUTPUT);
   pinMode(R4, OUTPUT);
   adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
+  //set microcontroller resolution
   analogReadResolution(10);
   Serial.begin(115200);
-//
-//  lcd.init();
-//  lcd.backlight();
 
   connectToWiFi();
 
-  // Initialize emon library (30 = calibration number)
+  // set callibration
   emon1.current(ADC_INPUT, 30);
-
-//  lcd.setCursor(3, 0);
-//  lcd.print("AWS connect   ");
-//  awsConnector.setup();
-//
-
-//*********************************
-//MQTT
- client.setServer(mqttBroker, 1883); //httpserver,http port
- client.setCallback(callback);
-//  sprintf(topicSubscribe, "/v1.6/devices/%s/%s/lv", DEVICE_LABEL, VARIABLE_LABEL_SUBSCRIBE_1);
-//  client.subscribe(topicSubscribe);
-//*********************************
+  
+  //MQTT
+  client.setServer(mqttBroker, 1883); //httpserver,http port
+  client.setCallback(callback);
+  //  sprintf(topicSubscribe, "/v1.6/devices/%s/%s/lv", DEVICE_LABEL, VARIABLE_LABEL_SUBSCRIBE_1);
+  //  client.subscribe(topicSubscribe);
+  //*********************************
   timeFinishedSetup = millis();
 
 }
 
-void loop(){
-  if(WiFi.status() != WL_CONNECTED){connectToWiFi();};
- Serial.print((millis() -a )/1000); //just to get latency
-    Serial.println('s');
- a = millis();
-//  *****************************
-   if (!client.connected()) {
-//    client.subscribe(topicSubscribe);
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    connectToWiFi();
+  };
+  Serial.print("Latency: ")
+  Serial.print((millis() - a ) / 1000); //just to get latency
+  Serial.println('s');
+  a = millis();
+  //  *****************************
+  if (!client.connected()) {
+    Serial.println("Attempting to reconnect");
     reconnect();
     // Subscribes for getting the value of the control variable in the temperature-box device
     char topicToSubscribe_variable_1[200];
     sprintf(topicToSubscribe_variable_1, "%s", ""); // Cleans the content of the char
     sprintf(topicToSubscribe_variable_1, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
     sprintf(topicToSubscribe_variable_1, "%s/%s/lv", topicToSubscribe_variable_1, VARIABLE_LABEL_SUB_1);
-//    Serial.println("subscribing to topic:");
-//    Serial.println(topicToSubscribe_variable_1);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_1);
     client.subscribe(topicToSubscribe_variable_1);
 
     char topicToSubscribe_variable_2[200];
     sprintf(topicToSubscribe_variable_2, "%s", ""); // Cleans the content of the char
     sprintf(topicToSubscribe_variable_2, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
     sprintf(topicToSubscribe_variable_2, "%s/%s/lv", topicToSubscribe_variable_2, VARIABLE_LABEL_SUB_2);
-//    Serial.println("subscribing to topic:");
-//    Serial.println(topicToSubscribe_variable_2);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_2);
     client.subscribe(topicToSubscribe_variable_2);
 
     char topicToSubscribe_variable_3[200];
     sprintf(topicToSubscribe_variable_3, "%s", ""); // Cleans the content of the char
     sprintf(topicToSubscribe_variable_3, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
     sprintf(topicToSubscribe_variable_3, "%s/%s/lv", topicToSubscribe_variable_3, VARIABLE_LABEL_SUB_3);
-//    Serial.println("subscribing to topic:");
-//    Serial.println(topicToSubscribe_variable_3);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_3);
     client.subscribe(topicToSubscribe_variable_3);
 
     char topicToSubscribe_variable_4[200];
     sprintf(topicToSubscribe_variable_4, "%s", ""); // Cleans the content of the char
     sprintf(topicToSubscribe_variable_4, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
     sprintf(topicToSubscribe_variable_4, "%s/%s/lv", topicToSubscribe_variable_4, VARIABLE_LABEL_SUB_4);
-//    Serial.println("subscribing to topic:");
-//    Serial.println(topicToSubscribe_variable_4);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_4);
     client.subscribe(topicToSubscribe_variable_4);
 
     char topicToSubscribe_variable_5[200];
     sprintf(topicToSubscribe_variable_5, "%s", ""); // Cleans the content of the char
     sprintf(topicToSubscribe_variable_5, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
     sprintf(topicToSubscribe_variable_5, "%s/%s/lv", topicToSubscribe_variable_5, VARIABLE_LABEL_SUB_5);
-//    Serial.println("subscribing to topic:");
-//    Serial.println(topicToSubscribe_variable_5);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_5);
     client.subscribe(topicToSubscribe_variable_5);
+
+    char topicToSubscribe_variable_6[200];
+    sprintf(topicToSubscribe_variable_6, "%s", ""); // Cleans the content of the char
+    sprintf(topicToSubscribe_variable_6, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
+    sprintf(topicToSubscribe_variable_6, "%s/%s/lv", topicToSubscribe_variable_6, VARIABLE_LABEL_SUB_6);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_6);
+    client.subscribe(topicToSubscribe_variable_6);
   }
-//********
+  //********
   unsigned long currentMillis = millis();
 
   // If it's been longer then 1000ms since we took a measurement, take one now!
   double watt;
   double energy;
-  if((currentMillis - lastMeasurement) > 1000){
+  if ((currentMillis - lastMeasurement) > 1000) {
     double amps = 0;
-    for(int i=0;i<60;i++){
+    int n = 200; //n number of samples
+    for (int i=0; i<n; i++) {
       amps += emon1.calcIrms(1480); // Calculate Irms only
     }
-    //average of 60 readings for current
-      watt = (amps/60) * HOME_VOLTAGE;
-      //calc energy for the previous session
-      energy; //declare energy
-      if(timeCount>timeFinishedSetup){
-      energy = (watt * (millis()-timeCount))/(3.6 * pow(10,9));
-        }
-      else{
-      energy = (watt * (millis()-timeFinishedSetup))/(3.6 * pow(10,9));
-          }
-      timeCount = millis();
-    // Update the display
+    //average of  readings for current
+    amps = amps/n;
+    watt = amps*HOME_VOLTAGE;
+    //calc energy for the previous session
+    if (timeCount > timeFinishedSetup) {
+      Serial.println("Real time power reading");
+      //send energy in Wh
+      energy = (watt * (millis() - timeCount))/(3.6 * pow(10, 6));
+    }
+    else {
+      //send energy in Wh
+      Serial.println("First Energy reading based on setup time");
+      energy = (watt * (millis() - timeFinishedSetup))/(3.6 * pow(10, 6));
+    }
+    timeCount = millis();
     lastMeasurement = millis();
+    // Update the display
     writeEnergyToDisplay(watt, amps, energy);
 
   }
   sprintf(topic, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
   sprintf(payload, "%s", ""); // Cleans the payload
-//  sprintf(payload, "{\"%s\":", VARIABLE_LABEL); // Adds the variable label
-//  ************************
-//   float sensor = hallRead();
-//  Serial.print("Value of Sensor is:- ");Serial.println(sensor);
-  
-  /* 4 is mininum width, 2 is precision; float value is copied onto str_power*/
+  //  sprintf(payload, "{\"%s\":", VARIABLE_LABEL); // Adds the variable label
+  //  ************************
+  //   float sensor = hallRead();
+  //  Serial.print("Value of Sensor is:- ");Serial.println(sensor);
   dtostrf(watt, 4, 2, str_power);
   dtostrf(cummulativeEnergy, 4, 2, str_energy);
-//TESTING*****************
-// Important: Avoid to send a very long char as it is very memory space costly, send small char arrays
+  dtostrf(cummCost, 4, 2, str_cummcost);
+  dtostrf(sessionCost, 4, 2, str_sessioncost);
+  dtostrf(energyLeft, 4, 2, str_energyleft);
+  dtostrf(sessionEnergy, 4, 2, str_sessionenergy);
+  dtostrf(percentUsage, 4, 2, str_percentusage);
+  //TESTING*****************
+  // Important: Avoid to send a very long char as it is very memory space costly, send small char arrays
   sprintf(payload, "{\"");
   sprintf(payload, "%s%s\":%s", payload, VARIABLE_LABEL_1, str_power);
   sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_2, str_energy);
-//  sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_3, str_val_3);
-//  sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_4, str_val_4);
+  sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_3, str_cummcost);
+  sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_5, str_sessioncost);
   sprintf(payload, "%s}", payload);
-  
-//  sprintf(payload, "%s {\"value\": %s}}", payload, str_power); // Adds the value
-//  Serial.println("Publishing data to Ubidots Cloud");
+  //publish to Ubidots
+  Serial.println("Publishing...");
+  client.publish(topic, payload);
+
+  /* Builds the payload with structure: {"energyleft":25.00,"percentageusage":50.00} for the rest of variables*/
+  sprintf(payload, "%s", ""); //Cleans the content of the payload
+  sprintf(payload, "{\"");
+  sprintf(payload, "%s%s\":%s", payload, VARIABLE_LABEL_4, str_energyleft);
+  sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_6, str_percentusage);
+  sprintf(payload, "%s,\"%s\":%s", payload, VARIABLE_LABEL_7, str_sessionenergy);
+  sprintf(payload, "%s}", payload);
+  //Publish to Ubidots
+  Serial.println("Publishing...");
   client.publish(topic, payload);
   client.loop();
   delay(1000);
 }
 
-    // Readings are unstable the first 5 seconds when the device powers on
+// Readings are unstable the first 5 seconds when the device powers on
 //      // so ignore them until they stabilise.
 //    if(millis() - timeFinishedSetup < 10000){
 ////      lcd.setCursor(3, 0);
@@ -479,26 +544,3 @@ void loop(){
 //      measureIndex++;
 //    }
 //  }
-
-  // When we have 30 measurements, send them to AWS!
-//  if (measureIndex == 30) {
-////    lcd.setCursor(3,0);
-//    lcd.print("AWS upload..   ");
-//
-//    // Construct the JSON to send to AWS
-//    String msg = "{\"readings\": [";
-//
-//    for (short i = 0; i <= 28; i++){
-//      msg += measurements[i];
-//      msg += ",";
-//    }
-//
-//    msg += measurements[29];
-//    msg += "]}";
-//
-//    awsConnector.sendMessage(msg);
-//    measureIndex = 0;
-//  }
-
-  // This keeps the MQTT connection stable
-//  awsConnector.loop();
