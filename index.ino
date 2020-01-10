@@ -1,11 +1,11 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
-#include "EmonLib.h"
+//#include "EmonLib.h"
 #include "WiFi.h"
 #include <driver/adc.h>
 // The GPIO pin were the CT sensor is connected to (should be an ADC input)
-#define ADC_INPUT 34
-#define HOME_VOLTAGE 220.0
+//#define ADC_INPUT 34
+#define HOME_VOLTAG 220.0
 // Force EmonLib to use 10bit ADC resolution
 #define ADC_BITS    10
 //define cummulative energy and its time
@@ -21,7 +21,7 @@ double percentUsage;
 //double target;
 double refEnergy = 0; //reference energy when target is set
 // Create instances
-EnergyMonitor emon1;
+//EnergyMonitor emon1;
 //*******************************
 //MQTT
 #define TOKEN "BBFF-4OMP5F0TB4SvzDCDMgRQVrePZBy6gR" // Put your Ubidots' TOKEN
@@ -48,8 +48,8 @@ EnergyMonitor emon1;
 
 #define R1 26 // Set the GPIO26 as RELAY
 #define R2 27 // Set the GPIO27 as RELAY2
-#define R3 28
-#define R4 29
+#define R3 14
+#define R4 12
 
 char mqttBroker[]  = "industrial.api.ubidots.com";
 char payload[700];
@@ -73,12 +73,24 @@ float CONTROL1; // Name of the variable to be used within the code.
 float CONTROL2; // Name of the variable to be used within the code.
 float CONTROL3; // Name of the variable to be used within the code.
 float CONTROL4; // Name of the variable to be used within the code.
-float TARGET; // Name of the variable to be used within the code.
+float TARGET = 10000; // Name of the variable to be used within the code.//Default Target is 100units = 100kwh
 float UNITCOST = 25;
-float RESET;
+float RESET = 1;
 float value; // To store incoming value.
 uint8_t variable; // To keep track of the state machine and be able to use the switch case.
 
+/*current reading*/
+const unsigned int numReadings = 500; //samples to calculate Vrms.
+
+int readingsVClamp[numReadings];    // samples of the sensor SCT-013-000
+int readingsGND[numReadings];      // samples of the virtual ground
+float SumSqGND = 0;
+float SumSqVClamp = 0;
+float total = 0;
+
+
+int PinVClamp = 34;    // Sensor SCT-013-000
+int PinVirtGND = 32;   // Virtual ground
 
 /****************************************
    Initializate constructors for objects
@@ -171,6 +183,7 @@ void set_state(char* variable_label) {
 void execute_cases() {
   switch (variable) {
     case 0:
+      Serial.println("Switch 1 reporting...");
       CONTROL1 = value;
       digitalWrite(R1, value);
       Serial.print("CONTROL1: ");
@@ -178,6 +191,7 @@ void execute_cases() {
       Serial.println();
       break;
     case 1:
+      Serial.println("Switch 2 reporting...");
       CONTROL2 = value;
       digitalWrite(R2, value);
       Serial.print("CONTROL2: ");
@@ -185,6 +199,7 @@ void execute_cases() {
       Serial.println();
       break;
     case 2:
+      Serial.println("Switch 3 reporting...");
       CONTROL3 = value;
       digitalWrite(R3, value);
       Serial.print("CONTROL3: ");
@@ -192,6 +207,7 @@ void execute_cases() {
       Serial.println();
       break;
     case 3:
+      Serial.println("Switch 4 reporting...");
       CONTROL4 = value;
       digitalWrite(R4, value);
       Serial.print("CONTROL4: ");
@@ -199,29 +215,38 @@ void execute_cases() {
       Serial.println();
       break;
     case 4:
-      TARGET = value; //set target consumption
-      refEnergy = cummulativeEnergy; // upfate reference energy
-      Serial.print("Reference energy set at: ");
-      Serial.println(cummulativeEnergy);
-      Serial.print("TARGET CONSUMPTION: ");
-      Serial.println(TARGET);
-      Serial.println();
+      if (value != TARGET) {
+        Serial.println("Target consumption reporting...");
+        TARGET = value; //set target consumption
+        refEnergy = cummulativeEnergy; // upfate reference energy
+        Serial.print("Reference energy set at: ");
+        Serial.println(cummulativeEnergy);
+        Serial.print("TARGET CONSUMPTION: ");
+        Serial.println(TARGET);
+        Serial.println();
+      }
       break;
     case 5:
-      UNITCOST = value; //Set global variable unti cost
-      Serial.print("UNIT COST: ");
-      Serial.println(UNITCOST);
-      Serial.println();
+      if (value != UNITCOST) {
+        Serial.println("Unit cost set value reporting...");
+        UNITCOST = value; //Set global variable unit cost
+        Serial.print("UNIT COST: ");
+        Serial.println(UNITCOST);
+        Serial.println();
+      }
       break;
     case 6:
-      RESET = value;
-      Serial.print("RESET: ");
-      Serial.println(RESET);
-      if (RESET == 1) {
-        cummulativeEnergy = TARGET = refEnergy = sessionEnergy = cummCost = sessionCost = percentUsage = energyLeft = 0;
-        Serial.println("System reset");
+      if (value != RESET) {
+        Serial.println("Reset reporting...");
+        RESET = value;
+        Serial.print("RESET: ");
+        Serial.println(RESET);
+        if (RESET == 1) {
+          cummulativeEnergy = refEnergy = sessionEnergy = cummCost = sessionCost = percentUsage = energyLeft = 0;
+          Serial.println("System reset");
+          Serial.println();
+        }
       }
-      Serial.println();
       break;
     //    case 7:
     //      CONTROL8 = value;
@@ -301,14 +326,14 @@ void execute_cases() {
 
 // Wifi credentials
 const char *WIFI_SSID = "abdulloooh";
-const char *WIFI_PASSWORD = "abdurrahman";
+const char *WIFI_PASSWORD = "laptop124";
 
 //Array to store 30 readings (and then transmit in one-go to AWS)
 //short measurements[30];
 //short measureIndex = 0;
 unsigned long lastMeasurement = 0;
 unsigned long timeFinishedSetup = 0;
-unsigned long a=0;
+unsigned long a = 0;
 
 void writeEnergyToDisplay(double watts, double amps, double energy) {
   //  lcd.setCursor(3, 1); // Start from column 3, first two are broken :/
@@ -321,13 +346,13 @@ void writeEnergyToDisplay(double watts, double amps, double energy) {
   Serial.print("Cumulative Energy: ");
   Serial.print(cummulativeEnergy);
   Serial.println(" Wh");
-  cummCost = cummulativeEnergy * UNITCOST;
+  cummCost = cummulativeEnergy * UNITCOST / 1000;
   Serial.print("Cummulative cost: ");
   Serial.println(cummCost);
   sessionEnergy = cummulativeEnergy - refEnergy;
   Serial.print("Session Energy: ");
   Serial.println(sessionEnergy);
-  sessionCost = sessionEnergy * UNITCOST;
+  sessionCost = sessionEnergy * UNITCOST / 1000;
   Serial.print("session cost: ");
   Serial.println(sessionCost);
   energyLeft = TARGET - sessionEnergy;
@@ -377,27 +402,33 @@ void connectToWiFi() {
 
 void setup()
 {
+
   pinMode(R1, OUTPUT);
   pinMode(R2, OUTPUT);
   pinMode(R3, OUTPUT);
   pinMode(R4, OUTPUT);
   adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
   //set microcontroller resolution
-  analogReadResolution(10);
+  analogReadResolution(12);
   Serial.begin(115200);
+  // initialize all the readings to 0:
+  for (int thisReading = 0; thisReading < numReadings; thisReading++) {
+    readingsVClamp[thisReading] = 0;
+    readingsGND[thisReading] = 0;
+  }
 
-  connectToWiFi();
+connectToWiFi();
 
-  // set callibration
-  emon1.current(ADC_INPUT, 30);
-  
-  //MQTT
-  client.setServer(mqttBroker, 1883); //httpserver,http port
-  client.setCallback(callback);
-  //  sprintf(topicSubscribe, "/v1.6/devices/%s/%s/lv", DEVICE_LABEL, VARIABLE_LABEL_SUBSCRIBE_1);
-  //  client.subscribe(topicSubscribe);
-  //*********************************
-  timeFinishedSetup = millis();
+// set callibration
+//  emon1.current(ADC_INPUT, 1);
+
+//MQTT
+client.setServer(mqttBroker, 1883); //httpserver,http port
+client.setCallback(callback);
+//  sprintf(topicSubscribe, "/v1.6/devices/%s/%s/lv", DEVICE_LABEL, VARIABLE_LABEL_SUBSCRIBE_1);
+//  client.subscribe(topicSubscribe);
+//*********************************
+timeFinishedSetup = millis();
 
 }
 
@@ -405,7 +436,7 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     connectToWiFi();
   };
-  Serial.print("Latency: ")
+  Serial.print("Latency: ");
   Serial.print((millis() - a ) / 1000); //just to get latency
   Serial.println('s');
   a = millis();
@@ -461,6 +492,14 @@ void loop() {
     //    Serial.println("subscribing to topic:");
     //    Serial.println(topicToSubscribe_variable_6);
     client.subscribe(topicToSubscribe_variable_6);
+
+    char topicToSubscribe_variable_7[200];
+    sprintf(topicToSubscribe_variable_7, "%s", ""); // Cleans the content of the char
+    sprintf(topicToSubscribe_variable_7, "%s%s", "/v1.6/devices/", DEVICE_LABEL);
+    sprintf(topicToSubscribe_variable_7, "%s/%s/lv", topicToSubscribe_variable_7, VARIABLE_LABEL_SUB_7);
+    //    Serial.println("subscribing to topic:");
+    //    Serial.println(topicToSubscribe_variable_7);
+    client.subscribe(topicToSubscribe_variable_7);
   }
   //********
   unsigned long currentMillis = millis();
@@ -468,25 +507,46 @@ void loop() {
   // If it's been longer then 1000ms since we took a measurement, take one now!
   double watt;
   double energy;
+ double amps=0;
   if ((currentMillis - lastMeasurement) > 1000) {
-    double amps = 0;
-    int n = 200; //n number of samples
-    for (int i=0; i<n; i++) {
-      amps += emon1.calcIrms(1480); // Calculate Irms only
+   
+    unsigned int i = 0;
+    SumSqGND = 0;
+    SumSqVClamp = 0;
+    total = 0;
+
+    for (unsigned int i = 0; i < numReadings; i++)
+    {
+      readingsVClamp[i] = analogRead(PinVClamp) - analogRead(PinVirtGND);
+      delay(1); //
     }
-    //average of  readings for current
-    amps = amps/n;
-    watt = amps*HOME_VOLTAGE;
+
+    //Calculate Vrms
+    for (unsigned int i = 0; i < numReadings; i++)
+    {
+      SumSqVClamp = SumSqVClamp + sq((float)readingsVClamp[i]);
+
+    }
+
+    total = sqrt(SumSqVClamp / numReadings);
+    total = (total * (float)250 / 32768); // Rburden=3300 ohms, LBS= 0,004882 V (5/1024)
+    // Transformer of 2000 laps (SCT-013-000).
+    //using 12-bit ADC => 4096 and 3200ohms                      // 5*220*2000/(3300*1024)= 2/3 (aprox)
+
+    //    Serial.println(total);
+    //    delay(1500);
+    amps = total;
+    watt = amps * HOME_VOLTAG;
     //calc energy for the previous session
     if (timeCount > timeFinishedSetup) {
       Serial.println("Real time power reading");
       //send energy in Wh
-      energy = (watt * (millis() - timeCount))/(3.6 * pow(10, 6));
+      energy = (watt * (millis() - timeCount)) / (3.6 * pow(10, 6));
     }
     else {
       //send energy in Wh
       Serial.println("First Energy reading based on setup time");
-      energy = (watt * (millis() - timeFinishedSetup))/(3.6 * pow(10, 6));
+      energy = (watt * (millis() - timeFinishedSetup)) / (3.6 * pow(10, 6));
     }
     timeCount = millis();
     lastMeasurement = millis();
@@ -543,4 +603,3 @@ void loop() {
 //      measurements[measureIndex] = watt;
 //      measureIndex++;
 //    }
-//  }
