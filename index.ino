@@ -14,7 +14,7 @@ double cummulativeEnergy = 0;
 double sessionEnergy;
 double energyLeft;
 //double targetConsumption;
-//double UNITCOST = 25;
+//double UNITCOST = 25;l
 double cummCost;
 double sessionCost;
 double percentUsage;
@@ -326,7 +326,7 @@ void execute_cases() {
 
 // Wifi credentials
 const char *WIFI_SSID = "abdulloooh";
-const char *WIFI_PASSWORD = "laptop124";
+const char *WIFI_PASSWORD = "laptop1257";
 
 //Array to store 30 readings (and then transmit in one-go to AWS)
 //short measurements[30];
@@ -407,6 +407,10 @@ void setup()
   pinMode(R2, OUTPUT);
   pinMode(R3, OUTPUT);
   pinMode(R4, OUTPUT);
+//  digitalWrite(R1, HIGH);
+//  digitalWrite(R2, HIGH);
+//  digitalWrite(R3, HIGH);
+//  digitalWrite(R4, HIGH);
   adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
   //set microcontroller resolution
   analogReadResolution(12);
@@ -532,8 +536,8 @@ void loop() {
     total = (total * (float)250 / 32768); // Rburden=3300 ohms, LBS= 0,004882 V (5/1024)
     // Transformer of 2000 laps (SCT-013-000).
     //using 12-bit ADC => 4096 and 3200ohms                      // 5*220*2000/(3300*1024)= 2/3 (aprox)
-
-    //    Serial.println(total);
+     
+    if(total<0.1){total = 0;} ///for very small current reading
     //    delay(1500);
     amps = total;
     watt = amps * HOME_VOLTAG;
